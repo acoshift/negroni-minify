@@ -28,7 +28,7 @@ func NewMinify() *Minify {
 
 func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	w := &writer{
-		ResponseWriter: rw,
+		ResponseWriter: rw.(negroni.ResponseWriter),
 		Body:           &bytes.Buffer{},
 	}
 
@@ -47,22 +47,8 @@ func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.Ha
 }
 
 type writer struct {
-	http.ResponseWriter
-	Body        *bytes.Buffer
-	code        int
-	wroteHeader bool
-}
-
-func (w *writer) Header() http.Header {
-	return w.ResponseWriter.Header()
-}
-
-func (w *writer) WriteHeader(code int) {
-	if !w.wroteHeader {
-		w.code = code
-		w.wroteHeader = true
-		w.ResponseWriter.WriteHeader(code)
-	}
+	negroni.ResponseWriter
+	Body *bytes.Buffer
 }
 
 func (w *writer) Write(b []byte) (int, error) {
@@ -71,13 +57,7 @@ func (w *writer) Write(b []byte) (int, error) {
 		h.Set("Content-Type", http.DetectContentType(b))
 	}
 
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-
-	if w.Body != nil {
-		w.Body.Write(b)
-	}
+	w.Body.Write(b)
 
 	return len(b), nil
 }
