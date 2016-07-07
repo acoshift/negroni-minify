@@ -1,7 +1,10 @@
 package minify
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -27,37 +30,88 @@ func NewMinify() *Minify {
 }
 
 func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	w := &writer{
-		ResponseWriter: rw.(negroni.ResponseWriter),
-		Body:           &bytes.Buffer{},
+	w := &responseWriter{
+		w:    rw.(negroni.ResponseWriter),
+		body: &bytes.Buffer{},
 	}
 
-	next(negroni.NewResponseWriter(w), r)
+	next(w, r)
 
-	hd := rw.Header()
-	p := w.Body.Bytes()
-	b, err := m.Bytes(hd.Get("Content-Type"), p)
-	if err != nil {
+	p := w.body.Bytes()
+	if b, err := m.Bytes(rw.Header().Get("Content-Type"), p); err != nil {
+		rw.WriteHeader(w.status)
 		rw.Write(p)
 	} else {
-		hd.Del("Content-Length")
-		hd.Set("Content-Length", strconv.Itoa(len(b)))
+		rw.Header().Set("Content-Length", strconv.Itoa(len(b)))
+		rw.WriteHeader(w.status)
 		rw.Write(b)
 	}
 }
 
-type writer struct {
-	negroni.ResponseWriter
-	Body *bytes.Buffer
+type responseWriter struct {
+	w           negroni.ResponseWriter
+	body        *bytes.Buffer
+	status      int
+	size        int
+	beforeFuncs []func(negroni.ResponseWriter)
 }
 
-func (w *writer) Write(b []byte) (int, error) {
-	h := w.ResponseWriter.Header()
-	if h.Get("Content-Type") == "" {
-		h.Set("Content-Type", http.DetectContentType(b))
+func (rw *responseWriter) Header() http.Header {
+	return rw.w.Header()
+}
+
+func (rw *responseWriter) WriteHeader(s int) {
+	rw.status = s
+	rw.callBefore()
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.Written() {
+		// The status will be StatusOK if WriteHeader has not been called yet
+		rw.WriteHeader(http.StatusOK)
 	}
+	size, err := rw.body.Write(b)
+	rw.size += size
+	return size, err
+}
 
-	w.Body.Write(b)
+func (rw *responseWriter) Status() int {
+	return rw.status
+}
 
-	return len(b), nil
+func (rw *responseWriter) Size() int {
+	return rw.size
+}
+
+func (rw *responseWriter) Written() bool {
+	return rw.status != 0
+}
+
+func (rw *responseWriter) Before(before func(negroni.ResponseWriter)) {
+	rw.beforeFuncs = append(rw.beforeFuncs, before)
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := rw.w.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("the ResponseWriter doesn't support the Hijacker interface")
+	}
+	return hijacker.Hijack()
+}
+
+func (rw *responseWriter) CloseNotify() <-chan bool {
+	return rw.w.(http.CloseNotifier).CloseNotify()
+}
+
+func (rw *responseWriter) callBefore() {
+	for i := len(rw.beforeFuncs) - 1; i >= 0; i-- {
+		rw.beforeFuncs[i](rw)
+	}
+}
+
+func (rw *responseWriter) Flush() {
+	flusher, ok := rw.w.(http.Flusher)
+	if ok {
+		flusher.Flush()
+	}
 }
