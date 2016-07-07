@@ -11,15 +11,42 @@ import (
 	"github.com/tdewolff/minify/js"
 )
 
-var (
-	m *minify.M
-)
+// Minify is a middleware handler that minify html, css, js using tdewolff/minify
+type Minify struct {
+	*minify.M
+}
 
-func init() {
-	m = minify.New()
+// NewMinify returns new minify middleware
+func NewMinify() *Minify {
+	m := minify.New()
 	m.AddFunc("text/html", html.Minify)
 	m.AddFunc("text/css", css.Minify)
 	m.AddFunc("text/javascript", js.Minify)
+	return &Minify{m}
+}
+
+func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	w := &writer{
+		ResponseWriter: rw,
+		Body:           &bytes.Buffer{},
+	}
+
+	next(w, r)
+
+	hd := rw.Header()
+	p := w.Body.Bytes()
+	b, err := m.Bytes(hd.Get("Content-Type"), p)
+	if err != nil {
+		rw.Write(p)
+	} else {
+		hd.Del("Content-Length")
+		hd.Set("Content-Length", strconv.Itoa(len(b)))
+		rw.Write(b)
+	}
+}
+
+func init() {
+
 }
 
 type writer struct {
@@ -56,28 +83,4 @@ func (w *writer) Write(b []byte) (int, error) {
 	}
 
 	return len(b), nil
-}
-
-// Minify Middleware
-func Minify(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wr := &writer{
-			ResponseWriter: w,
-			Body:           &bytes.Buffer{},
-		}
-
-		h.ServeHTTP(wr, r)
-
-		hd := w.Header()
-		p := wr.Body.Bytes()
-		b, err := m.Bytes(hd.Get("Content-Type"), p)
-		if err != nil {
-			w.Write(p)
-		} else {
-			hd.Del("Content-Length")
-			hd.Set("Content-Length", strconv.Itoa(len(b)))
-
-			w.Write(b)
-		}
-	})
 }
