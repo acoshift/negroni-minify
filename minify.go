@@ -28,11 +28,11 @@ func NewMinify() *Minify {
 
 func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	w := &writer{
-		ResponseWriter: rw.(negroni.ResponseWriter),
+		ResponseWriter: rw,
 		Body:           &bytes.Buffer{},
 	}
 
-	next(w, r)
+	next(negroni.NewResponseWriter(w), r)
 
 	hd := rw.Header()
 	p := w.Body.Bytes()
@@ -47,7 +47,7 @@ func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.Ha
 }
 
 type writer struct {
-	negroni.ResponseWriter
+	http.ResponseWriter
 	Body        *bytes.Buffer
 	code        int
 	wroteHeader bool
