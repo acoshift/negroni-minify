@@ -9,6 +9,7 @@ import (
 	"github.com/tdewolff/minify/css"
 	"github.com/tdewolff/minify/html"
 	"github.com/tdewolff/minify/js"
+	"github.com/urfave/negroni"
 )
 
 // Minify is a middleware handler that minify html, css, js using tdewolff/minify
@@ -27,7 +28,7 @@ func NewMinify() *Minify {
 
 func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	w := &writer{
-		ResponseWriter: rw,
+		ResponseWriter: rw.(negroni.ResponseWriter),
 		Body:           &bytes.Buffer{},
 	}
 
@@ -45,12 +46,8 @@ func (m *Minify) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.Ha
 	}
 }
 
-func init() {
-
-}
-
 type writer struct {
-	http.ResponseWriter
+	negroni.ResponseWriter
 	Body        *bytes.Buffer
 	code        int
 	wroteHeader bool
